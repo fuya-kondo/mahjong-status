@@ -10,16 +10,16 @@
 ## 全体像
 
 * **命名規則**: マスタは `m_*`、ユーザー・利用系は `u_*`、Laravel 標準は `users/sessions/...`。
-* **主な機能**: 卓編成、対局履歴、年間タイトル、階級・称号、対局予定日、ルール設定。
+* **主な機能**: 卓（テーブル）編成、対局履歴、階級（Tier）、称号（Badge）、ルール設定。
 * **リレーション（論理）**
 
   * ルール(`m_rule`) ← グループ(`m_group`) ← 卓(`u_table`) ← 対局履歴(`u_game_history`)
   * ユーザー(`u_user`) ← 対局履歴(`u_game_history`)
   * 自家(`m_direction`) ← 対局履歴(`u_game_history`)
-  * ユーザー(`u_user`) ← タイトル所持(`u_title`) → タイトル種別(`m_title`)
   * ユーザー(`u_user`) ← 階級履歴(`u_tier_history`) → 階級(`m_tier`)
   * ユーザー(`u_user`) → 称号(`m_badge`)
-  * 対局予定日(`m_game_day`) 
+
+> 現行 DDL は外部キー制約を張っていません（アプリ側で整合性を担保）。本書では**論理的 FK**を明示します。
 
 ---
 
@@ -32,12 +32,9 @@ erDiagram
   u_table ||--o{ u_game_history : table
   u_user ||--o{ u_game_history : player
   m_direction ||--o{ u_game_history : seat
-  u_user ||--o{ u_title : won
-  m_title ||--o{ u_title : type
   u_user ||--o{ u_tier_history : history
   m_tier ||--o{ u_tier_history : to_tier
   m_badge ||--o{ u_user : badge
-  m_game_day ||..o{ u_game_history : by_date
 
   m_rule {
     int m_rule_id PK
@@ -86,22 +83,11 @@ erDiagram
     datetime reg_date
     timestamp update_date
   }
-  u_title {
-    int u_title_id PK
-    int m_title_id FK
-    int u_user_id FK
-    int year
-    string value
-  }
   u_tier_history {
     int u_user_tier_history_id PK
     int u_user_id FK
     int m_tier_id FK
     int change_date
-  }
-  m_title {
-    int m_title_id PK
-    string name
   }
   m_tier {
     int m_tier_id PK
@@ -119,10 +105,6 @@ erDiagram
     int m_direction_id PK
     string name
   }
-  m_game_day {
-    date game_day PK
-  }
-
 ```
 
 ---
@@ -139,7 +121,7 @@ erDiagram
 | end_score   | SMALLINT(5) UNSIGNED | NO   | 0         | 返し点（精算の基準点）        |
 | point_1..4  | TINYINT(3)           | NO   | 0         | 順位ウマ（1〜4位）         |
 
-**ポイント計算**: `((score - end_score) / 1000) + UMA(rank)`。例: スコア 91,000・返し 30,000・1位 UMA=+50 → 61.0 + 50 = **111.0**。
+**ポイント計算**: `((score - end_score) / 1000) + UMA(rank)`
 
 ### 2) m_group — グループ（卓の種別）
 
@@ -189,17 +171,7 @@ erDiagram
 | reg_date    | DATETIME            | NO   | CURRENT_TIMESTAMP | 登録日時                         |
 | update_date | TIMESTAMP           | NO   | CURRENT_TIMESTAMP | 更新日時（ON UPDATE）              |
 
-### 6) u_title — ユーザーの年間タイトル
-
-| 列          | 型                    | Null | 既定値 | 説明                                  |
-| ---------- | -------------------- | ---- | --- | ----------------------------------- |
-| u_title_id | SMALLINT(5) UNSIGNED | NO   | -   | PK                                  |
-| m_title_id | TINYINT(3) UNSIGNED  | NO   | 0   | タイトル種別（→ m_title）                   |
-| u_user_id  | TINYINT(3) UNSIGNED  | NO   | 0   | ユーザー（→ u_user）                      |
-| year       | YEAR(4)              | NO   | -   | 受賞年                                 |
-| value      | VARCHAR(255)         | NO   | -   | 受賞値（例: 最高点数=94300, 4着回避率=82.42% など） |
-
-### 7) u_tier_history — ユーザー階級の変更履歴
+### 6) u_tier_history — ユーザー階級の変更履歴
 
 | 列                      | 型                   | Null | 既定値 | 説明                |
 | ---------------------- | ------------------- | ---- | --- | ----------------- |
@@ -208,14 +180,7 @@ erDiagram
 | m_tier_id              | TINYINT(3) UNSIGNED | NO   | -   | 適用された階級（→ m_tier） |
 | change_date            | YEAR(4)             | NO   | -   | 変更年               |
 
-### 8) m_title — タイトル種別
-
-| 列          | 型            | Null | 既定値 | 説明                        |
-| ---------- | ------------ | ---- | --- | ------------------------- |
-| m_title_id | TINYINT(3)   | NO   | -   | PK                        |
-| name       | VARCHAR(255) | NO   | -   | タイトル名（MVP / 最高点数 / 4着回避率） |
-
-### 9) m_tier — 階級
+### 7) m_tier — 階級
 
 | 列         | 型                   | Null | 既定値 | 説明             |
 | --------- | ------------------- | ---- | --- | -------------- |
@@ -223,7 +188,7 @@ erDiagram
 | name      | VARCHAR(32)         | NO   | -   | 階級名（S/A/B/C/D） |
 | color     | VARCHAR(32)         | NO   | -   | 表示色コード（HEX など） |
 
-### 10) m_badge — 称号
+### 8) m_badge — 称号
 
 | 列          | 型            | Null | 既定値 | 説明       |
 | ---------- | ------------ | ---- | --- | -------- |
@@ -233,20 +198,14 @@ erDiagram
 | flame      | VARCHAR(255) | NO   | -   | 枠（未使用可）  |
 | background | VARCHAR(255) | NO   | -   | 背景（未使用可） |
 
-### 11) m_direction — 自家（東南西北）
+### 9) m_direction — 自家（東南西北）
 
 | 列              | 型                   | Null | 既定値 | 説明                        |
 | -------------- | ------------------- | ---- | --- | ------------------------- |
 | m_direction_id | TINYINT(3) UNSIGNED | NO   | -   | PK（1:東 / 2:南 / 3:西 / 4:北） |
 | name           | VARCHAR(64)         | NO   | -   | 表示名                       |
 
-### 12) m_game_day — 対局予定日
-
-| 列        | 型    | Null | 既定値 | 説明        |
-| -------- | ---- | ---- | --- | --------- |
-| game_day | DATE | NO   | -   | 対局予定日（一意制約） |
-
-### 13) m_setting — システム設定
+### 10) m_setting — システム設定
 
 | 列            | 型                    | Null | 既定値 | 説明            |
 | ------------ | -------------------- | ---- | --- | ------------- |
@@ -254,7 +213,7 @@ erDiagram
 | name         | VARCHAR(255)         | NO   | -   | 設定名（例: 点数非表示） |
 | value        | SMALLINT(5) UNSIGNED | NO   | 0   | 値             |
 
-### 14) Laravel 標準テーブル（抜粋）
+### 11) Laravel 標準テーブル（抜粋）
 
 * `users`（アプリログイン用）
 * `sessions`（セッション）
@@ -266,7 +225,6 @@ erDiagram
 
 * 主キー: 各テーブルの ID 列に設定。
 * `u_game_history` に複数の検索系インデックス（user / play_date / game）。
-* `m_game_day.game_day` は一意。
 * Auto Increment は `m_*`/`u_*`/Laravel 標準の ID に設定済み。
 
 ---
@@ -274,8 +232,12 @@ erDiagram
 ## ビジネスルール
 
 * **ポイント算出**は `m_rule` の `end_score` と `point_1..4` を使用。
-* **同着**は `rank` に `"2=2"` のような文字列表現で保存（1位/2位/3位/4位の数値も許容）。
+* **同着**は `rank` に `"2=2"` のような文字列表現で保存。
 * **削除**は `del_flag` による論理削除（履歴保全）。
-* **称号/階級**は `u_user` の現在値と履歴テーブル（`u_tier_history`）を併用。
+* **階級**は `u_user` の現在値と履歴テーブル（`u_tier_history`）を併用。
 
 ---
+
+
+
+
