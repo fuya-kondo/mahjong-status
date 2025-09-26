@@ -5,7 +5,7 @@
 * インフラ/環境：Docker（ローカル環境）、Xserver（本番デプロイ）
 ---
 
-# 麻雀成績管理｜DB 設計書（README 版）
+# 麻雀成績管理｜DB 設計書
 
 ## 全体像
 
@@ -122,8 +122,9 @@ erDiagram
     string name
   }
   m_game_day {
-    date game_day UQ
+    date game_day PK
   }
+
 ```
 
 ---
