@@ -5,23 +5,21 @@
 * インフラ/環境：Docker（ローカル環境）、Xserver（本番デプロイ）
 ---
 
-# 麻雀成績管理｜DB 設計書
+# DB 設計書
 
 ## 全体像
 
 * **命名規則**: マスタは `m_*`、ユーザー・利用系は `u_*`、Laravel 標準は `users/sessions/...`。
-* **主な機能**: 卓（テーブル）編成、対局履歴、年間タイトル、階級（Tier）・称号（Badge）管理、対局日マスタ、ルール（ウマ/返し）設定。
+* **主な機能**: 卓編成、対局履歴、年間タイトル、階級・称号、対局予定日、ルール設定。
 * **リレーション（論理）**
 
   * ルール(`m_rule`) ← グループ(`m_group`) ← 卓(`u_table`) ← 対局履歴(`u_game_history`)
   * ユーザー(`u_user`) ← 対局履歴(`u_game_history`)
-  * 方位(`m_direction`) ← 対局履歴(`u_game_history`)
+  * 自家(`m_direction`) ← 対局履歴(`u_game_history`)
   * ユーザー(`u_user`) ← タイトル所持(`u_title`) → タイトル種別(`m_title`)
   * ユーザー(`u_user`) ← 階級履歴(`u_tier_history`) → 階級(`m_tier`)
   * ユーザー(`u_user`) → 称号(`m_badge`)
-  * 対局日(`m_game_day`) は集計/バリデーション用（履歴には `play_date` で実対局日時を保存）
-
-> 現行 DDL は外部キー制約を張っていません（アプリ側で整合性を担保）。本書では**論理的 FK**を明示します。
+  * 対局予定日(`m_game_day`) 
 
 ---
 
@@ -159,8 +157,6 @@ erDiagram
 | m_group_id     | TINYINT(3) UNSIGNED | NO   | 0   | グループ FK（→ m_group）    |
 | u_user_id_1..4 | TINYINT(3) UNSIGNED | NO   | 0   | その卓の参加者 1〜4（→ u_user） |
 
-> 将来の拡張として、可変人数や観戦等を視野に **`u_table_member`** の正規化を推奨（`u_table_id`×`u_user_id`×`seat`）。
-
 ### 4) u_game_history — 対局履歴
 
 | 列                 | 型                    | Null | 既定値               | 説明                                  |
@@ -169,7 +165,7 @@ erDiagram
 | u_table_id        | TINYINT(3) UNSIGNED  | NO   | 0                 | 卓 FK（→ u_table）                     |
 | u_user_id         | TINYINT(3) UNSIGNED  | NO   | 0                 | ユーザー FK（→ u_user）                   |
 | game              | TINYINT(3) UNSIGNED  | NO   | 0                 | 同一卓での試合番号（1,2,3…）                   |
-| m_direction_id    | INT(3) UNSIGNED      | NO   | 0                 | 方位（→ m_direction: 東南西北）             |
+| m_direction_id    | INT(3) UNSIGNED      | NO   | 0                 | 自家（→ m_direction: 東南西北）             |
 | rank              | VARCHAR(32)          | NO   | 'UNKNOWN'         | 順位。`"1"/"2"/"3"/"4"/同着例 `"2=2"` を許容 |
 | score             | INT(6)               | NO   | 0                 | 素点（終局時スコア）                          |
 | point             | DECIMAL(5,1)         | NO   | 0.0               | 精算ポイント（返し+ウマ適用後）                    |
@@ -244,11 +240,11 @@ erDiagram
 | m_direction_id | TINYINT(3) UNSIGNED | NO   | -   | PK（1:東 / 2:南 / 3:西 / 4:北） |
 | name           | VARCHAR(64)         | NO   | -   | 表示名                       |
 
-### 12) m_game_day — 対局日
+### 12) m_game_day — 対局予定日
 
 | 列        | 型    | Null | 既定値 | 説明        |
 | -------- | ---- | ---- | --- | --------- |
-| game_day | DATE | NO   | -   | 対局日（一意制約） |
+| game_day | DATE | NO   | -   | 対局予定日（一意制約） |
 
 ### 13) m_setting — システム設定
 
@@ -281,42 +277,5 @@ erDiagram
 * **同着**は `rank` に `"2=2"` のような文字列表現で保存（1位/2位/3位/4位の数値も許容）。
 * **削除**は `del_flag` による論理削除（履歴保全）。
 * **称号/階級**は `u_user` の現在値と履歴テーブル（`u_tier_history`）を併用。
-
----
-
-## サンプルクエリ
-
-**1) 月間ランキング（ポイント合計）**
-
-```sql
-SELECT u.u_user_id, CONCAT(u.last_name, ' ', u.first_name) AS name,
-       SUM(g.point) AS total_point
-FROM u_game_history g
-JOIN u_user u ON u.u_user_id = g.u_user_id
-WHERE g.play_date >= '2025-09-01' AND g.play_date < '2025-10-01'
-GROUP BY u.u_user_id
-ORDER BY total_point DESC;
-```
-
-**2) 年間タイトル（最高得点）更新候補**
-
-```sql
-SELECT g.u_user_id, MAX(g.score) AS max_score
-FROM u_game_history g
-WHERE YEAR(g.play_date) = 2025
-GROUP BY g.u_user_id
-ORDER BY max_score DESC
-LIMIT 1;
-```
-
-**3) ユーザーの階級推移**
-
-```sql
-SELECT y.change_date AS year, t.name AS tier
-FROM u_tier_history y
-JOIN m_tier t ON t.m_tier_id = y.m_tier_id
-WHERE y.u_user_id = 1
-ORDER BY y.change_date;
-```
 
 ---
